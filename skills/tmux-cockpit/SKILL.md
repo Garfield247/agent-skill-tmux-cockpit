@@ -5,124 +5,26 @@ description: >-
   长耗时测试与微服务后台监控、Toast 状态栏广播及交互审查舱调度工程规范技能。
 ---
 
-# Tmux 赛博战斗舱协同与外置观测工程规范技能 (Tmux Cockpit Skill)
+# Tmux 赛博战斗舱协同与外置观测工程规范 (Tmux Cockpit Skill)
 
-## 概述 (Overview)
-
-本技能定义了 AI 编码助手在 **Tmux 终端多路复用宿主环境** 与 **赛博三联屏战斗舱（Cockpit）** 下的高阶协同调度、任务外置投射与实时观测工程规范。
-
-在终端/CLI 开发场景中，最致命的交互反模式是：**“在主对话流中执行海量日志输出的黑盒长耗时命令（如并发压测、全量单元测试、编译构建或拉起常驻微服务），导致聊天界面被滚屏淹没卡死、上下文被垃圾 Token 稀释污染”**。
-本技能旨在将终端屏幕资源最大化利用，实现：**“右侧专注逻辑架构与决策对话，左上角外置投射实时测试与服务滚屏，左下角留白自主写码，状态栏异步 Toast 广播”** 的极致人机协作心流。
-
----
-
-# 1. 战术三联屏战斗舱拓扑治理 (The Cockpit Topology)
-
-三联屏由 `agy-dev` 黄金启动器初始化并保持幂等：
-
-```text
-+-------------------+-------------------+
-|   左上：观测台    |                   |
-| (日志/测试/压测)  |     右边：agy     |
-|    [高度 35%]     |    (AI 架构师)    |
-|   ($OBS_PANE)     |                   |
-+-------------------+  🔥 主对话交互舱  |
-|   左下：用户工作区|    (默认光标聚焦) |
-|  (留白终端 / nvim)|                   |
-|    [高度 65%]     |    [宽度 50%]     |
-+-------------------+-------------------+
-```
-
-### 窗格职能与契约 (Pane Roles)
-1. **右侧主舱 (`agy`)**：AI 架构师主交互界面。承担需求对齐、架构设计、原子代码编写与决策收口。严禁在此窗格中直接运行长滚屏或阻塞性服务；
-2. **左上观测台 (`AGY_OBSERVER_PANE`)**：动态外部输出终端。专门用于承载 `go test`、`pytest`、`stress_tester` 压测机器人、Docker 构建、微服务日志跟踪等高信息密度输出；
-3. **左下工作区 (User Pane)**：用户专属代码与 CLI 主刀区（默认留空终端，或 `-nv` 启动 Neovim），供用户自由发挥，Agent 绝不侵占或向其发送未经授权的指令。
-
----
-
-# 2. 核心调度与投射协议 (Dispatch SOP)
-
-### 2.1 宿主感知与观测台嗅探 (Sniffing)
-在执行耗时超过 5 秒的构建、测试、压测或长跑服务前，Agent 必须按序探测：
-```bash
-# 1. 探测是否处于 Tmux 宿主环境
-if [ -n "$TMUX" ]; then
-    # 2. 尝试读取三联屏专属观测窗格 ID
-    OBS_PANE=$(tmux show-environment AGY_OBSERVER_PANE 2>/dev/null | cut -d= -f2)
-fi
-```
-
-### 2.2 外置投射规范 (Projection)
-- **场景 A：命中三联屏环境（`$OBS_PANE` 存在）**：
-  - **强制优先投射**：使用 `tmux send-keys` 将命令直接投递到左上角观测窗格执行：
-    ```bash
-    tmux send-keys -t "$OBS_PANE" "<cmd>" C-m
-    ```
-  - **主会话回显规范**：主对话中仅输出一句轻量提示：
-    ```text
-    🚀 已将任务 [<task_name>] 投射至左上角观测台实时执行，请通过左上窗格查看实时滚屏。
-    ```
-- **场景 B：普通单窗格 Tmux 环境（无 `$OBS_PANE`）**：
-  - 使用纵向切屏：`tmux split-window -v -p 35 "<cmd>"` 临时切出独立监控窗格，执行完毕由用户按键关闭；
-- **场景 C：非 Tmux 纯终端环境**：
-  - 降级为标准后台任务调度或输出管道截流（`> /tmp/run.log 2>&1`），仅向主会话汇报退出码与摘要，严禁滚屏污染。
-
-### 2.3 完成广播通知协议 (Toast Notification)
-对于运行时间较长的后台任务（全量回归、基准测试、自动化压测、/goal 攻坚完成）：
-- **必须调用 Tmux 原生状态栏广播**：
-  ```bash
-  tmux display-message -d 4000 "🚀 [agy 交付通知] <简明完成摘要，如：E2E 场景自动化测试 16/16 全量通过>"
-  ```
-- 确保用户即使切走视线或在另一个窗格打字，也能在底部状态栏第一时间捕获交付信号。
-
-### 2.4 可视化审查舱联动 (Git Diff Review)
-当用户需要多文件大范围审阅 git diff 时：
-- 主动调用系统命令切出 `lazygit` 交互审查舱：
-  ```bash
-  tmux split-window -h -p 50 "lazygit"
-  ```
-- 免去用户手动切屏敲命令的摩擦，审阅完毕直接按 `q` 退出自动恢复原布局。
-
----
-
-# 3. 强类型 All-in-One 工具中枢 (`scripts/cockpit.py`)
-
-本技能收敛为单一的 Python 3 零依赖强类型中枢脚本，**通过强类型 argv 数组原生免疫 Shell 单双引号、特殊字符与换行截断灾难**：
-
-```bash
-COCKPIT="~/.gemini/config/skills/tmux-cockpit/scripts/cockpit.py"
-
-# 1. [标杆 1] 外置投递至观测台 (若观测台不存在则自动切屏自愈)
-$COCKPIT send "go test -v ./pkg/..."
-
-# 2. [标杆 1] 双向读取观测台最后 N 行日志 (直连 RCA 根因排查)
-$COCKPIT capture 50
-
-# 3. [标杆 1] 优雅熔断卡死任务 (发送两次 SIGINT)
-$COCKPIT interrupt
-
-# 4. [标杆 1] 状态栏高亮 Toast 交付广播
-$COCKPIT toast "🚀 E2E 场景测试 16/16 全量通过" 4000
-
-# 5. [标杆 2] 动态派发工兵舱 (Worker Pane) 并行挂机攻坚
-$COCKPIT spawn "stress-tester" "go run scripts/stress_tester/main.go -c 500"
-
-# 6. [标杆 2] 提取工兵产物并安全销毁窗格
-$COCKPIT reap "%25" 30
-
-# 7. [标杆 3] 结构化 JSON 全景拓扑感知 (PID、尺寸、前台命令、活跃状态)
-$COCKPIT status
-
-# 8. [标杆 3] 智能拓扑自愈
-$COCKPIT heal
-```
-
----
-
-# 4. 防御性工程红线 (Redlines)
-
+## 核心协同铁律 (Core Redlines)
 1. 🚨 **严禁在主交互舱跑长滚屏命令**：测试日志超过 50 行或常驻服务，严禁在主会话直接运行导致记忆与屏幕雪崩；
 2. 🚨 **严禁篡改用户主刀区**：左下角用户工作区严禁通过 `send-keys` 注入任何未经许可的内容；
-3. 🚨 **必须提供命令退出码与铁证收口**：投射至观测台的任务，在主会话中声称“完成”前，必须通过 `$COCKPIT capture` 读取日志并确认退出状态；
+3. 🚨 **必须提供命令退出码与铁证收口**：投射至观测台的任务，在主会话中声称“完成”前，必须读取日志并确认退出码；
 4. 🚨 **优雅自愈原则**：若投递时观测台已失效，自动调用 `$COCKPIT heal` 重建补位，绝不报错卡死；
 5. 🚨 **工兵舱生命周期自闭环**：通过 `$COCKPIT spawn` 派发的临时工兵舱，任务结束必须调用 `$COCKPIT reap` 安全回收。
+
+## 标准协同工作流 (Workflow SOP)
+1. **宿主环境感知**：探测 `$TMUX` 与 `AGY_OBSERVER_PANE`，识别战斗舱拓扑；
+2. **外置命令投射**：耗时构建、回归测试或常驻服务，通过 `cockpit.py send` 投射至左上角观测台；
+3. **主会话轻量回显**：主对话流仅输出一句状态提示，保持架构思维与决策心流；
+4. **铁证捕获与状态广播**：执行完毕调用 `cockpit.py capture` 验证退出码，并触发 `cockpit.py toast` 状态栏广播。
+
+## 渐进式参考手册索引 (Progressive Disclosure References)
+更深入的拓扑规划、投射协议与 Python CLI 脚本说明，按需调阅：
+
+| 领域模块 | 子手册路径 | 核心覆盖内容 |
+| :--- | :--- | :--- |
+| **三联屏拓扑与窗格职能** | [01_cockpit_topology_and_roles.md](file:///Users/garfield/.gemini/config/skills/tmux-cockpit/references/01_cockpit_topology_and_roles.md) | 赛博三联屏黄金布局、主舱/观测台/用户区三大窗格职能与环境变量 |
+| **调度投射与通知广播** | [02_dispatch_sop_and_notifications.md](file:///Users/garfield/.gemini/config/skills/tmux-cockpit/references/02_dispatch_sop_and_notifications.md) | 宿主感知嗅探、外置投射场景分支、Tmux 原生 Toast 状态栏广播、lazygit 审查舱联动 |
+| **强类型 CLI 中枢与生命周期** | [03_cockpit_cli_and_lifecycle.md](file:///Users/garfield/.gemini/config/skills/tmux-cockpit/references/03_cockpit_cli_and_lifecycle.md) | `scripts/cockpit.py` 强类型命令矩阵 (send/capture/toast/spawn/reap)、工兵舱生命周期 |
